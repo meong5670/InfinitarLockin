@@ -376,7 +376,7 @@ app.get('/api/admin/employee/:employeeId/detail', async (req, res) => {
     }
 });
 
-// Add/update a note for an attendance record
+// Add/update a note for an attendance record FIrst Commit
 app.post('/api/admin/attendance/:attendanceId/note', async (req, res) => {
     try {
         const { attendanceId } = req.params;

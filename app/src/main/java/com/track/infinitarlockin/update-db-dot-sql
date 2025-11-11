@@ -1,0 +1,7 @@
+-- Admin devices table for FCM notifications
+-- This table will store the unique tokens of all admin phones that need to receive notifications.
+CREATE TABLE IF NOT EXISTS admin_devices (
+    id SERIAL PRIMARY KEY,
+    fcm_token TEXT UNIQUE NOT NULL,
+    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

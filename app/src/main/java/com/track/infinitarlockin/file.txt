@@ -374,9 +374,9 @@ app.get('/api/admin/employee/:employeeId/detail', async (req, res) => {
         console.error('Detail error:', err);
         res.status(500).json({ error: 'Failed to get details' });
     }
-});
+});//second commit what how to commit on everything
 
-// Add/update a note for an attendance record FIrst Commit
+// Add/update a note for an attendance record no first commit
 app.post('/api/admin/attendance/:attendanceId/note', async (req, res) => {
     try {
         const { attendanceId } = req.params;

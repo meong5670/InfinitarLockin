@@ -36,11 +36,13 @@ class MainActivity : ComponentActivity() {
                         when (authState) {
                             is AuthState.Authenticated -> {
                                 navController.navigate(Screen.Home.route) {
+                                    launchSingleTop = true // Prevents creating a new instance if already on Home
                                     popUpTo(navController.graph.startDestinationId) { inclusive = true }
                                 }
                             }
                             is AuthState.Unauthenticated -> {
                                 navController.navigate(Screen.Register.route) {
+                                    launchSingleTop = true // Prevents creating a new instance if already on Register
                                     popUpTo(navController.graph.startDestinationId) { inclusive = true }
                                 }
                             }

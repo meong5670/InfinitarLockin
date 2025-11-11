@@ -11,7 +11,10 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
@@ -41,6 +44,7 @@ import com.track.infinitarlockin.ui.viewmodels.AttendanceViewModel
 import com.track.infinitarlockin.ui.viewmodels.AuthState
 import com.track.infinitarlockin.ui.viewmodels.MainViewModel
 import com.track.infinitarlockin.ui.viewmodels.SubmissionState
+import kotlinx.coroutines.delay
 import java.io.File
 import java.util.concurrent.Executor
 
@@ -63,7 +67,6 @@ fun CameraScreen(
                 )
             }
             else -> {
-                // Should not happen, but show a loading or error state just in case
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
         }
@@ -104,6 +107,7 @@ private fun CameraScreenContent(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(state.message)
                 LaunchedEffect(Unit) {
+                    delay(1500)
                     navController.popBackStack()
                 }
             }
@@ -171,11 +175,18 @@ private fun CameraPreview(
                     attendanceViewModel.submitAttendance(employee.id, employee.deviceId, file)
                 }
             },
+            shape = CircleShape,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(16.dp)
+                .padding(bottom = 32.dp) // Add some space from the absolute bottom
+                .navigationBarsPadding() // This is the key fix for the overlap
+                .size(80.dp) // Increase the button size
         ) {
-            Icon(Icons.Default.PhotoCamera, contentDescription = "Take picture")
+            Icon(
+                Icons.Default.PhotoCamera,
+                contentDescription = "Take picture",
+                modifier = Modifier.size(40.dp) // Increase the icon size
+            )
         }
     }
 }

@@ -9,7 +9,7 @@ object RetrofitClient {
 
     // Using a hardcoded IP for now until the server is fixed.
     // Replace with your PC's IP address.
-    private const val BASE_URL = "http://192.168.68.117:8080/" 
+    private const val BASE_URL = "https://infinitar-server.onrender.com"
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)

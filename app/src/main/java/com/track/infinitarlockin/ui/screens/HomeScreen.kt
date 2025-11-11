@@ -3,28 +3,21 @@ package com.track.infinitarlockin.ui.screens
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -44,6 +37,22 @@ fun HomeScreen(
     attendanceViewModel: AttendanceViewModel = viewModel()
 ) {
     val authState by mainViewModel.authState.collectAsState()
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // --- UI REFRESH FIX ---
+    // This will re-run every time the HomeScreen comes back into view (e.g., after taking a photo)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                mainViewModel.checkDeviceRegistration(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         when (val state = authState) {
@@ -57,8 +66,20 @@ fun HomeScreen(
             is AuthState.Loading -> {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
+            is AuthState.Error -> {
+                 Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(state.message, color = Color.Red)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = { mainViewModel.checkDeviceRegistration(context) }) {
+                        Text("Retry")
+                    }
+                }
+            }
             else -> {
-                Text("Authenticating...", modifier = Modifier.align(Alignment.Center))
+                Text("Loading...", modifier = Modifier.align(Alignment.Center))
             }
         }
     }
@@ -105,7 +126,6 @@ private fun HomeScreenContent(
         Text(text = "Welcome, ${employee.name}", fontSize = 24.sp)
         Spacer(modifier = Modifier.height(32.dp))
 
-        // --- UX IMPROVEMENT ---
         if (hasClockedIn) {
             Text(
                 text = "You have already clocked in for today.",
@@ -113,11 +133,9 @@ private fun HomeScreenContent(
                 textAlign = TextAlign.Center
             )
         } else {
-            // Only show the verification flow if the user has not clocked in
             when (val state = verificationState) {
                 is VerificationState.Idle -> {
                     Button(onClick = {
-                        // User must grant permissions first
                         if (locationPermissions.allPermissionsGranted) {
                             getCurrentLocation(context) { latitude, longitude ->
                                 attendanceViewModel.verifyAttendance(context, latitude, longitude)
@@ -153,7 +171,6 @@ private fun HomeScreenContent(
                 }
             }
         }
-        // --- END UX IMPROVEMENT ---
 
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = {

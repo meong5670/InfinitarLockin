@@ -20,7 +20,8 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-        buildConfigField("String", "BASE_URL", "\"http://192.168.68.117:8080/\"")
+        // CORRECTED URL - Removed trailing slash
+        buildConfigField("String", "BASE_URL", "\"https://infinitar-lockin-server.onrender.com\"")
     }
 
     buildTypes {

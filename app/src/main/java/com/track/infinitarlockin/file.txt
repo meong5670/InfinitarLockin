@@ -6,17 +6,33 @@ const sharp = require('sharp');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs').promises;
+const admin = require('firebase-admin');
+
+// ======================
+// FIREBASE SETUP
+// ======================
+try {
+    const serviceAccount = require('./serviceAccountKey.json');
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+    });
+    console.log('✅ Firebase Admin SDK initialized.');
+} catch (error) {
+    console.warn('⚠️ Firebase Admin SDK not initialized. Push notifications will be disabled.');
+    console.warn('   Reason:', error.message);
+}
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Database connection
+// ======================
+// DATABASE SETUP
+// ======================
 const pool = new Pool({
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    database: process.env.DB_NAME,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD
+    connectionString: process.env.DATABASE_URL, // Render uses this env var
+    ssl: {
+        rejectUnauthorized: false // Required for Render connections
+    }
 });
 
 // Middleware
@@ -40,6 +56,10 @@ const upload = multer({
     limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
 
+// ======================
+// HELPER FUNCTIONS
+// ======================
+
 // Helper: Calculate distance between coordinates
 function calculateDistance(lat1, lon1, lat2, lon2) {
     const R = 6371e3; // Earth radius in meters
@@ -47,27 +67,65 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     const φ2 = lat2 * Math.PI / 180;
     const Δφ = (lat2 - lat1) * Math.PI / 180;
     const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) *
-    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
     return R * c; // Distance in meters
 }
 
-// Helper: Check if time is late
+// **FIXED**: Timezone-aware isLate function
 function isLate(timestampMs) {
-    const date = new Date(timestampMs);
-    const hour = date.getHours();
-    const minute = date.getMinutes();
+    const serverDate = new Date(timestampMs);
+    const timeZone = process.env.TIMEZONE || 'Asia/Jakarta';
 
-    const cutoffHour = parseInt(process.env.LATE_CUTOFF_HOUR || '9');
-    const cutoffMinute = parseInt(process.env.LATE_CUTOFF_MINUTE || '15');
+    // Intl.DateTimeFormat is the modern, correct way to handle timezones in JS
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: timeZone,
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false
+    });
+
+    const parts = formatter.formatToParts(serverDate);
+    const hourPart = parts.find(p => p.type === 'hour');
+    // Handle cases where the hour might be formatted as '24' for midnight
+    const hour = hourPart.value === '24' ? 0 : parseInt(hourPart.value, 10);
+    const minute = parseInt(parts.find(p => p.type === 'minute').value, 10);
+    
+    const cutoffHour = parseInt(process.env.LATE_CUTOFF_HOUR || '9', 10);
+    const cutoffMinute = parseInt(process.env.LATE_CUTOFF_MINUTE || '15', 10);
 
     if (hour > cutoffHour) return true;
     if (hour === cutoffHour && minute > cutoffMinute) return true;
     return false;
+}
+
+// Helper: Send Push Notification
+async function sendPushNotification(title, body) {
+    if (!admin.apps.length) {
+        console.log('Push notification skipped: Firebase not initialized.');
+        return;
+    }
+    try {
+        const result = await pool.query('SELECT fcm_token FROM admin_devices');
+        const tokens = result.rows.map(row => row.fcm_token);
+        if (tokens.length === 0) {
+            console.log('No admin devices registered for notifications.');
+            return;
+        }
+        const message = {
+            notification: { title, body },
+            tokens: tokens,
+            android: { notification: { sound: 'default' } },
+            apns: { payload: { aps: { sound: 'default' } } }
+        };
+        const response = await admin.messaging().sendMulticast(message);
+        console.log('Successfully sent notification to:', `${response.successCount} devices.`);
+        if (response.failureCount > 0) {
+            console.log('Failed to send notification to:', `${response.failureCount} devices.`);
+        }
+    } catch (error) {
+        console.error('Error sending push notification:', error);
+    }
 }
 
 // ======================
@@ -103,34 +161,22 @@ app.get('/api/employees/check/:deviceId', async (req, res) => {
     try {
         const { deviceId } = req.params;
         const result = await pool.query('SELECT id, name, device_id FROM employees WHERE device_id = $1', [deviceId]);
-
         if (result.rows.length === 0) {
             return res.json({ registered: false });
         }
-
         const employee = result.rows[0];
-
-        // --- START OF UX IMPROVEMENT ---
-        // Also check if the employee has clocked in today
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
-
         const attendanceResult = await pool.query(
             'SELECT id FROM attendance WHERE employee_id = $1 AND timestamp >= $2 AND timestamp < $3',
             [employee.id, today, tomorrow]
         );
-
         const hasClockedInToday = attendanceResult.rows.length > 0;
-        // --- END OF UX IMPROVEMENT ---
-
         res.json({
             registered: true,
-            employee: {
-                ...employee,
-                hasClockedInToday: hasClockedInToday
-            }
+            employee: { ...employee, hasClockedInToday: hasClockedInToday }
         });
     } catch (err) {
         console.error('Check employee error:', err);
@@ -165,43 +211,32 @@ app.post('/api/attendance/submit', upload.single('photo'), async (req, res) => {
         if (!employeeId || !deviceId || !timestamp || !req.file) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
-
         const timestampMs = parseInt(timestamp, 10);
         if (isNaN(timestampMs)) {
             return res.status(400).json({ error: 'Invalid timestamp format received' });
         }
-
         const employeeResult = await pool.query('SELECT id, name FROM employees WHERE id = $1 AND device_id = $2', [employeeId, deviceId]);
         if (employeeResult.rows.length === 0) {
             return res.status(403).json({ error: 'Invalid employee or device' });
         }
-
         const employeeName = employeeResult.rows[0].name;
-
         const today = new Date(timestampMs);
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
-
         const existing = await pool.query('SELECT id FROM attendance WHERE employee_id = $1 AND timestamp >= $2 AND timestamp < $3', [employeeId, today, tomorrow]);
         if (existing.rows.length > 0) {
             return res.status(400).json({ error: 'Already clocked in today' });
         }
-
         const filename = `${employeeId}_${Date.now()}.jpg`;
         const filepath = path.join(UPLOAD_DIR, filename);
-
         await sharp(req.file.buffer).resize(800, 800, { fit: 'inside' }).jpeg({ quality: 80 }).toFile(filepath);
-
         const late = isLate(timestampMs);
         const timestampDate = new Date(timestampMs);
-
         const result = await pool.query('INSERT INTO attendance (employee_id, timestamp, photo_path, is_late, device_id) VALUES ($1, $2, $3, $4, $5) RETURNING *', [employeeId, timestampDate, filename, late, deviceId]);
-
-        // --- NOTIFICATION HOOK ---
-        // This is where you would call the function to send a push notification
-        // For example: sendPushNotification(`Attendance received for ${employeeName}`);
-
+        const notifTitle = `${employeeName} Clocked In`;
+        const notifBody = late ? 'They are late.' : 'They are on time.';
+        sendPushNotification(notifTitle, notifBody);
         res.json({ success: true, attendance: result.rows[0] });
     } catch (err) {
         console.error('Submit attendance error:', err);
@@ -222,10 +257,22 @@ app.get('/api/attendance/history/:employeeId', async (req, res) => {
     }
 });
 
-
 // ======================
 // ADMIN API ENDPOINTS
 // ======================
+app.post('/api/admin/register-device', async (req, res) => {
+    try {
+        const { fcm_token } = req.body;
+        if (!fcm_token) {
+            return res.status(400).json({ error: 'fcm_token is required' });
+        }
+        await pool.query('INSERT INTO admin_devices (fcm_token) VALUES ($1) ON CONFLICT (fcm_token) DO NOTHING', [fcm_token]);
+        res.status(200).json({ success: true, message: 'Device registered for notifications.' });
+    } catch (err) {
+        console.error('Register device error:', err);
+        res.status(500).json({ error: 'Failed to register device' });
+    }
+});
 
 app.get('/api/admin/today', async (req, res) => {
     try {
@@ -233,20 +280,11 @@ app.get('/api/admin/today', async (req, res) => {
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
-
-        const total = await pool.query(
-            'SELECT COUNT(*) as count FROM attendance WHERE timestamp >= $1 AND timestamp < $2',
-                                       [today, tomorrow]
-        );
-
-        const late = await pool.query(
-            'SELECT COUNT(*) as count FROM attendance WHERE timestamp >= $1 AND timestamp < $2 AND is_late = true',
-                                      [today, tomorrow]
-        );
-
+        const total = await pool.query('SELECT COUNT(*) as count FROM attendance WHERE timestamp >= $1 AND timestamp < $2', [today, tomorrow]);
+        const late = await pool.query('SELECT COUNT(*) as count FROM attendance WHERE timestamp >= $1 AND timestamp < $2 AND is_late = true', [today, tomorrow]);
         res.json({
             total: parseInt(total.rows[0].count),
-                 late: parseInt(late.rows[0].count)
+            late: parseInt(late.rows[0].count)
         });
     } catch (err) {
         console.error('Today stats error:', err);
@@ -257,29 +295,19 @@ app.get('/api/admin/today', async (req, res) => {
 app.get('/api/admin/employees', async (req, res) => {
     try {
         const { month, year } = req.query;
-
         if (!month || !year) {
             const result = await pool.query('SELECT id, name, device_id FROM employees ORDER BY name');
             return res.json({ employees: result.rows });
         }
-
         const startDate = new Date(year, month - 1, 1);
         const endDate = new Date(year, month, 1);
-
-        const result = await pool.query(`
-        SELECT
-        e.id,
-        e.name,
-        e.device_id,
-        COUNT(a.id) as attendance_count
-        FROM employees e
-        LEFT JOIN attendance a ON e.id = a.employee_id
-        AND a.timestamp >= $1
-        AND a.timestamp < $2
-        GROUP BY e.id, e.name, e.device_id
-        ORDER BY e.name
-        `, [startDate, endDate]);
-
+        const result = await pool.query(
+            `SELECT e.id, e.name, e.device_id, COUNT(a.id) as attendance_count
+            FROM employees e
+            LEFT JOIN attendance a ON e.id = a.employee_id AND a.timestamp >= $1 AND a.timestamp < $2
+            GROUP BY e.id, e.name, e.device_id
+            ORDER BY e.name`, [startDate, endDate]
+        );
         res.json({ employees: result.rows });
     } catch (err) {
         console.error('Employees error:', err);
@@ -287,28 +315,23 @@ app.get('/api/admin/employees', async (req, res) => {
     }
 });
 
-// --- NEW: Create a new employee ---
 app.post('/api/admin/employees', async (req, res) => {
     try {
         const { name, device_id } = req.body;
         if (!name || !device_id) {
             return res.status(400).json({ error: 'Name and device_id are required' });
         }
-        const result = await pool.query(
-            'INSERT INTO employees (name, device_id) VALUES ($1, $2) RETURNING *',
-            [name, device_id]
-        );
+        const result = await pool.query('INSERT INTO employees (name, device_id) VALUES ($1, $2) RETURNING *', [name, device_id]);
         res.status(201).json({ success: true, employee: result.rows[0] });
     } catch (err) {
         console.error('Create employee error:', err);
-        if (err.code === '23505') { // Unique constraint violation
+        if (err.code === '23505') {
             return res.status(409).json({ error: 'Device ID already exists' });
         }
         res.status(500).json({ error: 'Failed to create employee' });
     }
 });
 
-// --- NEW: Update an employee ---
 app.put('/api/admin/employees/:employeeId', async (req, res) => {
     try {
         const { employeeId } = req.params;
@@ -316,10 +339,7 @@ app.put('/api/admin/employees/:employeeId', async (req, res) => {
         if (!name || !device_id) {
             return res.status(400).json({ error: 'Name and device_id are required' });
         }
-        const result = await pool.query(
-            'UPDATE employees SET name = $1, device_id = $2 WHERE id = $3 RETURNING *',
-            [name, device_id, employeeId]
-        );
+        const result = await pool.query('UPDATE employees SET name = $1, device_id = $2 WHERE id = $3 RETURNING *', [name, device_id, employeeId]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Employee not found' });
         }
@@ -333,15 +353,11 @@ app.put('/api/admin/employees/:employeeId', async (req, res) => {
     }
 });
 
-// --- NEW: Delete an employee ---
 app.delete('/api/admin/employees/:employeeId', async (req, res) => {
     try {
         const { employeeId } = req.params;
-
-        // Must delete attendance records first due to foreign key constraint
         await pool.query('DELETE FROM attendance WHERE employee_id = $1', [employeeId]);
         const result = await pool.query('DELETE FROM employees WHERE id = $1', [employeeId]);
-
         if (result.rowCount === 0) {
             return res.status(404).json({ error: 'Employee not found' });
         }
@@ -356,45 +372,33 @@ app.get('/api/admin/employee/:employeeId/detail', async (req, res) => {
     try {
         const { employeeId } = req.params;
         const { month, year } = req.query;
-
         if (!month || !year) {
             return res.status(400).json({ error: 'Month and year required' });
         }
-
         const startDate = new Date(year, month - 1, 1);
         const endDate = new Date(year, month, 1);
-
         const result = await pool.query(
             'SELECT id, timestamp, is_late, photo_path, notes FROM attendance WHERE employee_id = $1 AND timestamp >= $2 AND timestamp < $3 ORDER BY timestamp DESC',
             [employeeId, startDate, endDate]
         );
-
         res.json({ attendance: result.rows });
     } catch (err) {
         console.error('Detail error:', err);
         res.status(500).json({ error: 'Failed to get details' });
     }
-});//second commit what how to commit on everything
+});
 
-// Add/update a note for an attendance record no first commit
 app.post('/api/admin/attendance/:attendanceId/note', async (req, res) => {
     try {
         const { attendanceId } = req.params;
         const { note } = req.body;
-
         if (note === undefined) {
             return res.status(400).json({ error: 'Note content is required' });
         }
-
-        const result = await pool.query(
-            'UPDATE attendance SET notes = $1 WHERE id = $2 RETURNING *',
-            [note, attendanceId]
-        );
-
+        const result = await pool.query('UPDATE attendance SET notes = $1 WHERE id = $2 RETURNING *', [note, attendanceId]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Attendance record not found' });
         }
-
         res.json({ success: true, attendance: result.rows[0] });
     } catch (err) {
         console.error('Update note error:', err);
@@ -402,39 +406,29 @@ app.post('/api/admin/attendance/:attendanceId/note', async (req, res) => {
     }
 });
 
-
 app.get('/api/admin/export', async (req, res) => {
     try {
         const { month, year } = req.query;
-
         if (!month || !year) {
             return res.status(400).json({ error: 'Month and year required' });
         }
-
         const startDate = new Date(year, month - 1, 1);
         const endDate = new Date(year, month, 1);
-
-        const result = await pool.query(`
-        SELECT
-        e.name as employee_name,
-        a.timestamp,
-        a.is_late
-        FROM attendance a
-        JOIN employees e ON a.employee_id = e.id
-        WHERE a.timestamp >= $1 AND a.timestamp < $2
-        ORDER BY a.timestamp DESC
-        `, [startDate, endDate]);
-
+        const result = await pool.query(
+            `SELECT e.name as employee_name, a.timestamp, a.is_late
+            FROM attendance a
+            JOIN employees e ON a.employee_id = e.id
+            WHERE a.timestamp >= $1 AND a.timestamp < $2
+            ORDER BY a.timestamp DESC`, [startDate, endDate]
+        );
         let csv = 'Employee Name,Date,Time,Status\n';
         result.rows.forEach(row => {
             const date = new Date(row.timestamp);
             const datePart = date.toISOString().split('T')[0];
             const timePart = date.toTimeString().split(' ')[0];
             const status = row.is_late ? 'Late' : 'On Time';
-
             csv += `${row.employee_name},${datePart},${timePart},${status}\n`;
         });
-
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename=attendance_${year}_${month}.csv`);
         res.send(csv);
@@ -443,7 +437,6 @@ app.get('/api/admin/export', async (req, res) => {
         res.status(500).json({ error: 'Export failed' });
     }
 });
-
 
 // Serve photos
 app.get('/api/photos/:filename', (req, res) => {
@@ -458,5 +451,5 @@ app.get('/api/photos/:filename', (req, res) => {
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Attendance Server running on port ${PORT}`);
-    console.log(`🌐 Access from network: http://<YOUR_PC_IP>:${PORT}`);
+    console.log(`   You may need to allow this port through your firewall.`);
 });

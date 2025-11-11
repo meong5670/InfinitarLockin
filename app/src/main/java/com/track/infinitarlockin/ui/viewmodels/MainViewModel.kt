@@ -23,8 +23,12 @@ class MainViewModel : ViewModel() {
     val authState = _authState.asStateFlow()
 
     fun checkDeviceRegistration(context: Context) {
-        viewModelScope.launch {
+        // Only show full-screen loading on the very first launch.
+        if (_authState.value !is AuthState.Authenticated) {
             _authState.value = AuthState.Loading
+        }
+        
+        viewModelScope.launch {
             try {
                 val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
                 val response = RetrofitClient.instance.checkEmployee(deviceId)
@@ -34,7 +38,11 @@ class MainViewModel : ViewModel() {
                     _authState.value = AuthState.Unauthenticated
                 }
             } catch (e: Exception) {
-                _authState.value = AuthState.Error("Network error: ${e.message}")
+                // Don't show a full-screen error if we already have valid data.
+                // This prevents a network blip from ruining the user experience.
+                if (_authState.value !is AuthState.Authenticated) {
+                    _authState.value = AuthState.Error("Network error: ${e.message}")
+                }
             }
         }
     }

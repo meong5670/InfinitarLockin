@@ -20,7 +20,6 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-        // CORRECTED URL - Removed trailing slash
         buildConfigField("String", "BASE_URL", "\"https://infinitar-lockin-server.onrender.com\"")
     }
 
@@ -33,6 +32,7 @@ android {
             )
         }
     }
+    // COmpile shoud be version 2.0
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
@@ -87,6 +87,9 @@ dependencies {
 
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+
+    // WorkManager for background tasks
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

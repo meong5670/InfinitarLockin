@@ -22,9 +22,9 @@ class MainViewModel : ViewModel() {
     private val _authState = MutableStateFlow<AuthState>(AuthState.Loading)
     val authState = _authState.asStateFlow()
 
-    fun checkDeviceRegistration(context: Context) {
-        // Only show full-screen loading on the very first launch.
-        if (_authState.value !is AuthState.Authenticated) {
+    fun checkDeviceRegistration(context: Context, isRetry: Boolean = false) {
+        // Show loading indicator only on the first load or an explicit retry
+        if (_authState.value !is AuthState.Authenticated || isRetry) {
             _authState.value = AuthState.Loading
         }
         
@@ -38,11 +38,7 @@ class MainViewModel : ViewModel() {
                     _authState.value = AuthState.Unauthenticated
                 }
             } catch (e: Exception) {
-                // Don't show a full-screen error if we already have valid data.
-                // This prevents a network blip from ruining the user experience.
-                if (_authState.value !is AuthState.Authenticated) {
-                    _authState.value = AuthState.Error("Network error: ${e.message}")
-                }
+                _authState.value = AuthState.Error("Network error: ${e.message}")
             }
         }
     }

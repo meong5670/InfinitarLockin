@@ -40,8 +40,6 @@ fun HomeScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // --- UI REFRESH FIX ---
-    // This will re-run every time the HomeScreen comes back into view (e.g., after taking a photo)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -67,19 +65,22 @@ fun HomeScreen(
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
             is AuthState.Error -> {
-                 Column(
+                Column(
                     modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Text(state.message, color = Color.Red)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = { mainViewModel.checkDeviceRegistration(context) }) {
+                    Text(state.message, color = Color.Red, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { mainViewModel.checkDeviceRegistration(context, isRetry = true) }) {
                         Text("Retry")
                     }
                 }
             }
-            else -> {
-                Text("Loading...", modifier = Modifier.align(Alignment.Center))
+            is AuthState.Unauthenticated -> {
+                // This can happen if the user's registration is somehow revoked.
+                // The main LaunchedEffect will navigate them back to the register screen.
+                Text("Authentication lost. Redirecting...", modifier = Modifier.align(Alignment.Center))
             }
         }
     }

@@ -41,7 +41,6 @@ import com.track.infinitarlockin.ui.viewmodels.AuthState
 import com.track.infinitarlockin.ui.viewmodels.MainViewModel
 import com.track.infinitarlockin.ui.viewmodels.VerificationState
 import kotlinx.coroutines.delay
-import kotlin.random.Random
 
 @Composable
 fun HomeScreen(
@@ -201,22 +200,14 @@ private fun HomeScreenContent(
 private fun ClockedInContent() {
     var showEasterEgg by remember { mutableStateOf(false) }
 
-    // --- EASTER EGG IMAGE LOGIC ---
     val easterEggImages = remember {
         listOf(
-            R.drawable.kibby1,
-            R.drawable.kibby2,
-            R.drawable.kibby3,
-            R.drawable.kibby4,
-            R.drawable.kibby5,
-            R.drawable.kibby6,
-            R.drawable.kibby7,
-            R.drawable.kibby8,
-            R.drawable.kibby9,
+            R.drawable.kibby1, R.drawable.kibby2, R.drawable.kibby3,
+            R.drawable.kibby4, R.drawable.kibby5, R.drawable.kibby6,
+            R.drawable.kibby7, R.drawable.kibby8, R.drawable.kibby9,
             R.drawable.kibby10
         )
     }
-    // Hold the currently selected random image in a state
     var currentImage by remember { mutableStateOf(easterEggImages.first()) }
 
     Column(
@@ -226,7 +217,6 @@ private fun ClockedInContent() {
             .fillMaxWidth()
             .clickable {
                 showEasterEgg = !showEasterEgg
-                // Pick a new random image every time it's clicked
                 if (showEasterEgg) {
                     currentImage = easterEggImages.random()
                 }
@@ -236,16 +226,15 @@ private fun ClockedInContent() {
             Image(
                 painter = painterResource(id = currentImage),
                 contentDescription = "Easter Egg",
-                contentScale = ContentScale.Crop, // Use Crop to fill the space nicely
-                modifier = Modifier
-                    .size(200.dp) // Make the image much bigger
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(200.dp) // Keep the image large
             )
         } else {
             Icon(
                 Icons.Outlined.CheckCircle,
                 contentDescription = "Success",
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(200.dp) // Make the icon the same bigger size
+                modifier = Modifier.size(80.dp) // Revert the icon to its smaller size
             )
         }
 
@@ -273,7 +262,6 @@ private fun AttendanceActionContent(
     state: VerificationState,
     onMarkAttendance: () -> Unit
 ) {
-    // ... (This function remains unchanged)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -308,7 +296,6 @@ private fun AttendanceActionContent(
         }
     }
 }
-
 
 @SuppressLint("MissingPermission")
 private fun getCurrentLocation(context: Context, onLocationFetched: (Double, Double) -> Unit) {

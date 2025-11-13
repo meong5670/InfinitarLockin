@@ -40,7 +40,9 @@ import com.track.infinitarlockin.ui.viewmodels.AttendanceViewModel
 import com.track.infinitarlockin.ui.viewmodels.AuthState
 import com.track.infinitarlockin.ui.viewmodels.MainViewModel
 import com.track.infinitarlockin.ui.viewmodels.VerificationState
+import com.track.infinitarlockin.worker.DailyReminderWorker
 import kotlinx.coroutines.delay
+import kotlin.random.Random
 
 @Composable
 fun HomeScreen(
@@ -166,6 +168,11 @@ private fun HomeScreenContent(
                 AttendanceActionContent(
                     state = verificationState,
                     onMarkAttendance = {
+                        // --- SET THE LOCAL FLAG ---
+                        val prefs = context.getSharedPreferences(DailyReminderWorker.PREFS_NAME, Context.MODE_PRIVATE)
+                        prefs.edit().putLong(DailyReminderWorker.LAST_PRESS_KEY, System.currentTimeMillis()).apply()
+                        // --- END FLAG ---
+
                         if (locationPermissions.allPermissionsGranted) {
                             getCurrentLocation(context) { latitude, longitude ->
                                 attendanceViewModel.verifyAttendance(context, latitude, longitude)
@@ -227,14 +234,14 @@ private fun ClockedInContent() {
                 painter = painterResource(id = currentImage),
                 contentDescription = "Easter Egg",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(200.dp) // Keep the image large
+                modifier = Modifier.size(200.dp)
             )
         } else {
             Icon(
                 Icons.Outlined.CheckCircle,
                 contentDescription = "Success",
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(80.dp) // Revert the icon to its smaller size
+                modifier = Modifier.size(80.dp)
             )
         }
 

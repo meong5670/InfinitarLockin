@@ -17,7 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.core.graphics.toColorInt
 import androidx.navigation.compose.rememberNavController
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -29,25 +29,23 @@ import com.track.infinitarlockin.ui.navigation.Screen
 import com.track.infinitarlockin.ui.theme.InfinitarLockinTheme
 import com.track.infinitarlockin.ui.viewmodels.AuthState
 import com.track.infinitarlockin.ui.viewmodels.MainViewModel
-import com.track.infinitarlockin.worker.AttendanceReminderWorker
+import com.track.infinitarlockin.worker.DailyReminderWorker
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
+@OptIn(ExperimentalPermissionsApi::class)
 class MainActivity : ComponentActivity() {
 
     private val mainViewModel: MainViewModel by viewModels()
 
-    @OptIn(ExperimentalPermissionsApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Schedule the daily reminder
         scheduleDailyReminder()
 
         enableEdgeToEdge()
         setContent {
             InfinitarLockinTheme {
-                // For Android 13+, we need to request the notification permission
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     val notificationPermissionState = rememberPermissionState(
                         Manifest.permission.POST_NOTIFICATIONS
@@ -89,46 +87,43 @@ class MainActivity : ComponentActivity() {
         createNotificationChannel()
 
         val workManager = WorkManager.getInstance(applicationContext)
-        val workName = "AttendanceReminder"
+        val workName = "DailyAttendanceReminder"
 
-        // Set the time for 9:00 AM
         val calendar = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 9)
-            set(Calendar.MINUTE, 0)
+            set(Calendar.MINUTE, 5)
             set(Calendar.SECOND, 0)
         }
         
-        // If it's already past 9 AM today, schedule it for tomorrow
         if (calendar.before(Calendar.getInstance())) {
             calendar.add(Calendar.DAY_OF_YEAR, 1)
         }
         
         val initialDelay = calendar.timeInMillis - System.currentTimeMillis()
 
-        val reminderRequest = PeriodicWorkRequestBuilder<AttendanceReminderWorker>(1, TimeUnit.DAYS)
+        val reminderRequest = PeriodicWorkRequestBuilder<DailyReminderWorker>(1, TimeUnit.DAYS)
             .setInitialDelay(initialDelay, TimeUnit.MILLISECONDS)
             .build()
 
-        // Use KEEP to ensure that if a reminder is already scheduled, it's not replaced
         workManager.enqueueUniquePeriodicWork(
             workName,
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.KEEP, // Use KEEP to prevent rescheduling if already set
             reminderRequest
         )
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channelId = "attendance_reminder_channel"
-            val name = "Attendance Reminders"
-            val descriptionText = "Notifications to remind you to clock in."
+            val channelId = "daily_reminder_channel"
+            val name = "Daily Reminders"
+            val descriptionText = "Reminders to clock in for attendance."
             val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel(channelId, name, importance).apply {
                 description = descriptionText
                 enableLights(true)
-                lightColor = Color.Red.hashCode()
+                lightColor = "#FF0000".toColorInt()
                 enableVibration(true)
-                vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500)
+                vibrationPattern = longArrayOf(0, 500, 250, 500, 250, 500, 250, 500)
             }
             val notificationManager: NotificationManager =
                 getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

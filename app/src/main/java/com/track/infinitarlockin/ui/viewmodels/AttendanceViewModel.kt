@@ -57,7 +57,7 @@ class AttendanceViewModel : ViewModel() {
             try {
                 val request = VerifyRequest(
                     wifiSsid = ssid,
-                    wifiBssid = bssid,
+                    wifiBssid = bssid,// the bssid shoudl change, but Im not sure if it is
                     latitude = latitude,
                     longitude = longitude
                 )
@@ -97,6 +97,7 @@ class AttendanceViewModel : ViewModel() {
                         timestamp = timestampBody,
                         photo = photoPart
                     )
+//  thijngy for this shopuld be version with msg me thinks
 
                     Log.d("AttendanceViewModel", "API call successful. Response: ${response.success}")
 

@@ -29,20 +29,17 @@ class DailyReminderWorker(
         val today = Calendar.getInstance()
         val dayOfWeek = today.get(Calendar.DAY_OF_WEEK)
 
-        // 1. Check if it's a workday (Monday-Saturday)
         if (dayOfWeek == Calendar.SUNDAY) {
-            return Result.success() // It's Sunday, do nothing.
+            return Result.success()
         }
 
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val lastPressTimestamp = prefs.getLong(LAST_PRESS_KEY, 0L)
 
-        // 2. Check if the button has already been pressed today
         if (isToday(lastPressTimestamp)) {
-            return Result.success() // Button was pressed today, do nothing.
+            return Result.success()
         }
 
-        // 3. If conditions are met, send the notification
         sendNotification()
 
         return Result.success()
@@ -57,15 +54,16 @@ class DailyReminderWorker(
     }
 
     private fun sendNotification() {
-        val channelId = "daily_reminder_channel"
-        val notificationId = 101 // Use a different ID for this notification type
+        // Use the new, unique channel ID
+        val channelId = "daily_reminder_channel_v2"
+        val notificationId = 101
 
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Attendance Reminder")
             .setContentText("Clock-in reminder! It's past 9:05 AM.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setVibrate(longArrayOf(0, 500, 250, 500, 250, 500, 250, 500)) // Long, insistent vibration
+            .setVibrate(longArrayOf(0, 500, 250, 500, 250, 500, 250, 500))
             .setLights(Color.RED, 3000, 3000)
             .setAutoCancel(true)
 
@@ -74,7 +72,7 @@ class DailyReminderWorker(
                 Manifest.permission.POST_NOTIFICATIONS
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-            return // Cannot post notification if permission is not granted
+            return
         }
 
         with(NotificationManagerCompat.from(context)) {

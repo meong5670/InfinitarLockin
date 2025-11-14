@@ -107,17 +107,18 @@ class MainActivity : ComponentActivity() {
 
         workManager.enqueueUniquePeriodicWork(
             workName,
-            ExistingPeriodicWorkPolicy.KEEP, // Use KEEP to prevent rescheduling if already set
+            ExistingPeriodicWorkPolicy.KEEP,
             reminderRequest
         )
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channelId = "daily_reminder_channel"
+            // Using a new, unique ID to ensure the settings are not stuck on an old channel
+            val channelId = "daily_reminder_channel_v2" 
             val name = "Daily Reminders"
-            val descriptionText = "Reminders to clock in for attendance."
-            val importance = NotificationManager.IMPORTANCE_HIGH
+            val descriptionText = "High-priority reminders to clock in for attendance."
+            val importance = NotificationManager.IMPORTANCE_HIGH // **This is the key fix**
             val channel = NotificationChannel(channelId, name, importance).apply {
                 description = descriptionText
                 enableLights(true)

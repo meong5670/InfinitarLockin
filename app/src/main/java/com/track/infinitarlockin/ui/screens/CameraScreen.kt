@@ -9,11 +9,7 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -21,11 +17,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,7 +35,7 @@ import com.track.infinitarlockin.data.remote.dto.Employee
 import com.track.infinitarlockin.ui.viewmodels.AttendanceViewModel
 import com.track.infinitarlockin.ui.viewmodels.AuthState
 import com.track.infinitarlockin.ui.viewmodels.MainViewModel
-import com.track.infinitarlockin.ui.viewmodels.SubmissionState
+import com.track.infinitarlockin.ui.viewmodels.UiState
 import kotlinx.coroutines.delay
 import java.io.File
 import java.util.concurrent.Executor
@@ -56,6 +48,13 @@ fun CameraScreen(
     attendanceViewModel: AttendanceViewModel = viewModel()
 ) {
     val authState by mainViewModel.authState.collectAsState()
+
+    // When this screen is left, reset the viewmodel state
+    DisposableEffect(Unit) {
+        onDispose {
+            attendanceViewModel.resetState()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         when (val state = authState) {
@@ -82,10 +81,10 @@ private fun CameraScreenContent(
 ) {
     val context = LocalContext.current
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
-    val submissionState by attendanceViewModel.submissionState.collectAsState()
+    val uiState by attendanceViewModel.uiState.collectAsState()
 
-    when (val state = submissionState) {
-        is SubmissionState.Idle -> {
+    when (val state = uiState) {
+        is UiState.Idle -> {
             if (cameraPermissionState.status.isGranted) {
                 CameraPreview(context, employee, attendanceViewModel)
             } else {
@@ -97,13 +96,13 @@ private fun CameraScreenContent(
                 }
             }
         }
-        is SubmissionState.Submitting -> {
+        is UiState.Loading -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
                 Text("Submitting attendance...")
             }
         }
-        is SubmissionState.Success -> {
+        is UiState.Success -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(state.message)
                 LaunchedEffect(Unit) {
@@ -112,7 +111,7 @@ private fun CameraScreenContent(
                 }
             }
         }
-        is SubmissionState.Error -> {
+        is UiState.Error -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(state.message, color = Color.Red)
             }
@@ -178,14 +177,14 @@ private fun CameraPreview(
             shape = CircleShape,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 32.dp) // Add some space from the absolute bottom
-                .navigationBarsPadding() // This is the key fix for the overlap
-                .size(80.dp) // Increase the button size
+                .padding(bottom = 32.dp)
+                .navigationBarsPadding()
+                .size(80.dp)
         ) {
             Icon(
                 Icons.Default.PhotoCamera,
                 contentDescription = "Take picture",
-                modifier = Modifier.size(40.dp) // Increase the icon size
+                modifier = Modifier.size(40.dp)
             )
         }
     }

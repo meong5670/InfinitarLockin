@@ -10,10 +10,8 @@ data class Employee(
     val name: String,
     @SerializedName("device_id")
     val deviceId: String,
-    @SerializedName("registered_at")
-    val registeredAt: String,
-    // This new field will be provided by the server
-    val hasClockedInToday: Boolean? = false
+    // This new field will be one of: "NONE", "CLOCKED_IN", "COMPLETED"
+    val attendanceStatus: String?
 ) : Parcelable
 
 data class RegisterRequest(
@@ -23,10 +21,12 @@ data class RegisterRequest(
 
 data class RegisterResponse(
     val success: Boolean,
-    val employee: Employee
+    val employee: Employee?,
+    val error: String?
 )
 
 data class CheckEmployeeResponse(
     val registered: Boolean,
-    val employee: Employee?
+    val employee: Employee?,
+    val error: String?
 )

@@ -13,7 +13,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.track.infinitarlockin.data.remote.dto.AttendanceRecord
@@ -61,7 +63,10 @@ fun AttendanceHistoryScreen(
                     if (state.records.isEmpty()) {
                         Text("No attendance records found.", modifier = Modifier.align(Alignment.Center))
                     } else {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
                             items(state.records) { record ->
                                 RecordItem(record)
                             }
@@ -78,36 +83,70 @@ fun AttendanceHistoryScreen(
 
 @Composable
 private fun RecordItem(record: AttendanceRecord) {
-    val date = try {
-        // The incoming format from PostgreSQL/node-postgres is ISO 8601, e.g., "2024-05-23T09:30:00.123Z"
-        val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault())
-        parser.timeZone = TimeZone.getTimeZone("UTC")
-        parser.parse(record.timestamp)
-    } catch (e: Exception) {
-        null
+    // Helper function to parse ISO 8601 timestamps
+    fun parseDate(timestamp: String?): Date? {
+        if (timestamp == null) return null
+        return try {
+            val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault())
+            parser.timeZone = TimeZone.getTimeZone("UTC")
+            parser.parse(timestamp)
+        } catch (e: Exception) {
+            null
+        }
     }
+    
+    val clockInDate = parseDate(record.timestamp)
+    val clockOutDate = parseDate(record.clockOutTimestamp)
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (date != null) {
-                Column {
-                    Text("Date: ${SimpleDateFormat("dd MMMM yyyy", Locale.getDefault()).format(date)}")
-                    Text("Time: ${SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(date)}")
-                }
+        Column(modifier = Modifier.padding(16.dp)) {
+            if (clockInDate != null) {
+                // --- DATE HEADER ---
                 Text(
-                    text = if (record.isLate) "Late" else "On Time",
-                    color = if (record.isLate) Color.Red else Color.Green
+                    text = SimpleDateFormat("EEEE, dd MMMM yyyy", Locale.getDefault()).format(clockInDate),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
                 )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // --- CLOCK IN / CLOCK OUT ROW ---
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Clock In Info
+                    Column {
+                        Text("Clock In:", fontSize = 14.sp, color = Color.Gray)
+                        Text(
+                            text = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(clockInDate),
+                            fontSize = 16.sp,
+                            color = if (record.isLate) MaterialTheme.colorScheme.error else Color.Unspecified
+                        )
+                    }
+                    
+                    // Clock Out Info
+                    Column(horizontalAlignment = Alignment.End) {
+                         Text("Clock Out:", fontSize = 14.sp, color = Color.Gray)
+                         if (clockOutDate != null) {
+                             Text(
+                                 text = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(clockOutDate),
+                                 fontSize = 16.sp
+                             )
+                         } else {
+                             Text(
+                                 text = "In Progress",
+                                 fontSize = 16.sp,
+                                 color = Color.Gray
+                             )
+                         }
+                    }
+                }
             } else {
                 Text("Invalid date format: ${record.timestamp}")
             }

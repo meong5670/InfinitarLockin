@@ -24,7 +24,8 @@ class HistoryViewModel : ViewModel() {
             _historyState.value = HistoryState.Loading
             try {
                 val response = RetrofitClient.instance.getAttendanceHistory(employeeId)
-                _historyState.value = HistoryState.Success(response.history)
+                // Provide an empty list if the response history is null
+                _historyState.value = HistoryState.Success(response.history ?: emptyList())
             } catch (e: Exception) {
                 _historyState.value = HistoryState.Error("Failed to load history: ${e.message}")
             }

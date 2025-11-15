@@ -2,10 +2,12 @@ package com.track.infinitarlockin.ui.viewmodels
 
 import android.content.Context
 import android.net.wifi.WifiManager
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
 import com.track.infinitarlockin.data.remote.RetrofitClient
+import com.track.infinitarlockin.data.remote.dto.ClockOutRequest
+import com.track.infinitarlockin.data.remote.dto.ErrorResponse
 import com.track.infinitarlockin.data.remote.dto.VerifyRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,105 +18,115 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import retrofit2.HttpException
 import java.io.File
 
-sealed class VerificationState {
-    object Idle : VerificationState()
-    object Verifying : VerificationState()
-    data class Success(val message: String) : VerificationState()
-    data class Error(val message: String) : VerificationState()
-}
-
-sealed class SubmissionState {
-    object Idle : SubmissionState()
-    object Submitting : SubmissionState()
-    data class Success(val message: String) : SubmissionState()
-    data class Error(val message: String) : SubmissionState()
+sealed class UiState {
+    object Idle : UiState()
+    object Loading : UiState()
+    data class Success(val message: String, val isVerification: Boolean = false) : UiState()
+    data class Error(val message: String) : UiState()
 }
 
 class AttendanceViewModel : ViewModel() {
 
-    private val _verificationState = MutableStateFlow<VerificationState>(VerificationState.Idle)
-    val verificationState: StateFlow<VerificationState> = _verificationState
-
-    private val _submissionState = MutableStateFlow<SubmissionState>(SubmissionState.Idle)
-    val submissionState: StateFlow<SubmissionState> = _submissionState
+    private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
+    val uiState: StateFlow<UiState> = _uiState
 
     fun verifyAttendance(context: Context, latitude: Double, longitude: Double) {
         viewModelScope.launch {
-            _verificationState.value = VerificationState.Verifying
-
-            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            val wifiInfo = wifiManager.connectionInfo
-            val ssid = wifiInfo.ssid.removeSurrounding("\"")
-            val bssid = wifiInfo.bssid
-
-            if (bssid == null) {
-                _verificationState.value = VerificationState.Error("WiFi not connected.")
-                return@launch
-            }
-
+            _uiState.value = UiState.Loading
             try {
-                val request = VerifyRequest(
-                    wifiSsid = ssid,
-                    wifiBssid = bssid,// the bssid shoudl change, but Im not sure if it is
-                    latitude = latitude,
-                    longitude = longitude
-                )
+                val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                val wifiInfo = wifiManager.connectionInfo
+                val ssid = wifiInfo.ssid.removeSurrounding("\"")
+                val bssid = wifiInfo.bssid
+                if (bssid == null) {
+                    _uiState.value = UiState.Error("WiFi not connected.")
+                    return@launch
+                }
+                val request = VerifyRequest(ssid, bssid, latitude, longitude)
                 val response = RetrofitClient.instance.verifyConditions(request)
-
                 if (response.verified) {
-                    _verificationState.value = VerificationState.Success("Verification successful!")
+                    _uiState.value = UiState.Success("Verified!", isVerification = true)
                 } else {
-                    _verificationState.value = VerificationState.Error(response.error ?: "Unknown verification error.")
+                    _uiState.value = UiState.Error(response.error ?: "Verification failed.")
                 }
             } catch (e: Exception) {
-                _verificationState.value = VerificationState.Error("Verification failed: ${e.message}")
+                _uiState.value = UiState.Error(formatErrorMessage(e))
             }
         }
     }
 
     fun submitAttendance(employeeId: Int, deviceId: String, photo: File) {
         viewModelScope.launch {
-            _submissionState.value = SubmissionState.Submitting
-            Log.d("AttendanceViewModel", "Starting submission for employeeId: $employeeId")
-
+            _uiState.value = UiState.Loading
             try {
                 withContext(Dispatchers.IO) {
-                    Log.d("AttendanceViewModel", "Preparing request bodies on IO thread.")
                     val employeeIdBody = employeeId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
                     val deviceIdBody = deviceId.toRequestBody("text/plain".toMediaTypeOrNull())
-                    val timestampBody = System.currentTimeMillis().toString().toRequestBody("text/plain".toMediaTypeOrNull())
-
-                    Log.d("AttendanceViewModel", "Photo file exists: ${photo.exists()}, size: ${photo.length()}")
                     val photoRequestBody = photo.asRequestBody("image/jpeg".toMediaTypeOrNull())
                     val photoPart = MultipartBody.Part.createFormData("photo", photo.name, photoRequestBody)
-                    Log.d("AttendanceViewModel", "Photo part created. Making API call.")
-
-                    val response = RetrofitClient.instance.submitAttendance(
-                        employeeId = employeeIdBody,
-                        deviceId = deviceIdBody,
-                        timestamp = timestampBody,
-                        photo = photoPart
-                    )
-//  thijngy for this shopuld be version with msg me thinks
-
-                    Log.d("AttendanceViewModel", "API call successful. Response: ${response.success}")
-
+                    val response = RetrofitClient.instance.submitAttendance(employeeIdBody, deviceIdBody, photoPart)
                     if (response.success) {
-                        _submissionState.value = SubmissionState.Success("Attendance submitted successfully!")
+                        _uiState.value = UiState.Success("Attendance submitted successfully!")
                     } else {
-                        _submissionState.value = SubmissionState.Error(response.error ?: "Submission failed. Please try again.")
+                        _uiState.value = UiState.Error(response.error ?: "Submission failed.")
                     }
                 }
             } catch (e: Exception) {
-                Log.e("AttendanceViewModel", "Submission failed with exception", e)
-                _submissionState.value = SubmissionState.Error("Submission failed: ${e.message}")
+                _uiState.value = UiState.Error(formatErrorMessage(e))
             }
         }
     }
 
-    fun resetVerificationState() {
-        _verificationState.value = VerificationState.Idle
+    fun submitClockOut(employeeId: Int, deviceId: String, context: Context, latitude: Double, longitude: Double) {
+        viewModelScope.launch {
+            _uiState.value = UiState.Loading
+            try {
+                val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                val wifiInfo = wifiManager.connectionInfo
+                val ssid = wifiInfo.ssid.removeSurrounding("\"")
+                val bssid = wifiInfo.bssid
+                if (bssid == null) {
+                    _uiState.value = UiState.Error("WiFi not connected.")
+                    return@launch
+                }
+                val verifyRequest = VerifyRequest(ssid, bssid, latitude, longitude)
+                val verifyResponse = RetrofitClient.instance.verifyConditions(verifyRequest)
+                if (!verifyResponse.verified) {
+                    _uiState.value = UiState.Error(verifyResponse.error ?: "Verification failed.")
+                    return@launch
+                }
+                val request = ClockOutRequest(employeeId, deviceId)
+                val response = RetrofitClient.instance.clockOut(request)
+                if (response.success) {
+                    _uiState.value = UiState.Success("Clocked out successfully!")
+                } else {
+                    _uiState.value = UiState.Error(response.error ?: "Clock-out failed.")
+                }
+            } catch (e: Exception) {
+                _uiState.value = UiState.Error(formatErrorMessage(e))
+            }
+        }
+    }
+
+    private fun formatErrorMessage(e: Exception): String {
+        return when (e) {
+            is HttpException -> {
+                val errorBody = e.response()?.errorBody()?.string()
+                try {
+                    val errorResponse = Gson().fromJson(errorBody, ErrorResponse::class.java)
+                    errorResponse.error ?: "An unknown server error occurred."
+                } catch (jsonE: Exception) {
+                    "An error occurred parsing the server response."
+                }
+            }
+            else -> "An unexpected network error occurred."
+        }
+    }
+
+    fun resetState() {
+        _uiState.value = UiState.Idle
     }
 }

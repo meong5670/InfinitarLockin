@@ -1,12 +1,9 @@
 package com.track.infinitarlockin.worker
 
 import android.Manifest
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
-import android.os.Build
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -26,21 +23,19 @@ class AttendanceReminderWorker(
         val today = Calendar.getInstance()
         val dayOfWeek = today.get(Calendar.DAY_OF_WEEK)
 
-        // Only run on workdays (Monday to Saturday)
         if (dayOfWeek == Calendar.SUNDAY) {
-            return Result.success() // It's Sunday, do nothing.
+            return Result.success()
         }
 
         try {
             val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             val response = RetrofitClient.instance.checkEmployee(deviceId)
 
-            // If the user is registered and has NOT clocked in today, send a notification
-            if (response.registered && response.employee?.hasClockedInToday == false) {
+            // Use the new status field
+            if (response.registered && response.employee?.attendanceStatus == "NONE") {
                 sendNotification()
             }
         } catch (e: Exception) {
-            // If there's a network error, etc., just retry later.
             return Result.retry()
         }
 
@@ -48,21 +43,23 @@ class AttendanceReminderWorker(
     }
 
     private fun sendNotification() {
-        val channelId = "attendance_reminder_channel"
-        val notificationId = 1
+        val channelId = "daily_reminder_channel_v2"
+        val notificationId = 101
 
         val builder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.drawable.ic_launcher_foreground) // Use your app's launcher icon
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Attendance Reminder")
-            .setContentText("Please don't forget to clock in for today!")
-            .setPriority(NotificationCompat.PRIORITY_HIGH) // High priority to make it pop up
-            .setVibrate(longArrayOf(0, 500, 200, 500, 200, 500)) // Strong, repeating vibration
+            .setContentText("Clock-in reminder! It's past 9:05 AM.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVibrate(longArrayOf(0, 500, 250, 500, 250, 500, 250, 500))
             .setLights(Color.RED, 3000, 3000)
             .setAutoCancel(true)
 
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            // This is a background task, so we can't request permission here.
-            // The user must have already granted it. If not, we can't show the notification.
+        if (ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
             return
         }
 

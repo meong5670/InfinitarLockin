@@ -11,9 +11,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Fingerprint
-import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +21,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,9 +38,11 @@ import com.track.infinitarlockin.ui.navigation.Screen
 import com.track.infinitarlockin.ui.viewmodels.AttendanceViewModel
 import com.track.infinitarlockin.ui.viewmodels.AuthState
 import com.track.infinitarlockin.ui.viewmodels.MainViewModel
-import com.track.infinitarlockin.ui.viewmodels.VerificationState
+import com.track.infinitarlockin.ui.viewmodels.UiState
 import com.track.infinitarlockin.worker.DailyReminderWorker
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.*
 import kotlin.random.Random
 
 @Composable
@@ -73,6 +74,7 @@ fun HomeScreen(
                     HomeScreenContent(
                         navController = navController,
                         employee = state.employee,
+                        mainViewModel = mainViewModel,
                         attendanceViewModel = attendanceViewModel
                     )
                 }
@@ -100,21 +102,20 @@ fun HomeScreen(
     }
 }
 
+
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 private fun HomeScreenContent(
     navController: NavController,
     employee: Employee,
+    mainViewModel: MainViewModel,
     attendanceViewModel: AttendanceViewModel
 ) {
     val context = LocalContext.current
-    val verificationState by attendanceViewModel.verificationState.collectAsState()
-    val hasClockedIn = employee.hasClockedInToday ?: false
+    val uiState by attendanceViewModel.uiState.collectAsState()
     var isVisible by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        isVisible = true
-    }
+    LaunchedEffect(Unit) { isVisible = true }
 
     val locationPermissions = rememberMultiplePermissionsState(
         permissions = listOf(
@@ -123,23 +124,31 @@ private fun HomeScreenContent(
         )
     )
 
-    LaunchedEffect(verificationState) {
-        if (verificationState is VerificationState.Success) {
-            delay(500)
-            navController.navigate(Screen.Camera.route)
+    LaunchedEffect(uiState) {
+        val state = uiState
+        if (state is UiState.Success) {
+            if (state.isVerification) {
+                delay(500)
+                navController.navigate(Screen.Camera.route)
+                attendanceViewModel.resetState() 
+            } else {
+                delay(1500)
+                mainViewModel.checkDeviceRegistration(context)
+                attendanceViewModel.resetState()
+            }
         }
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            attendanceViewModel.resetVerificationState()
+            attendanceViewModel.resetState()
         }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 32.dp, end = 32.dp, bottom = 32.dp, top = 64.dp),
+            .padding(start = 32.dp, end = 32.dp, top = 64.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         AnimatedVisibility(
@@ -162,17 +171,13 @@ private fun HomeScreenContent(
             visible = isVisible,
             enter = fadeIn(animationSpec = tween(800, delayMillis = 300))
         ) {
-            if (hasClockedIn) {
-                ClockedInContent()
-            } else {
-                AttendanceActionContent(
-                    state = verificationState,
+            when (employee.attendanceStatus) {
+                "NONE" -> AttendanceActionContent(
+                    uiState = uiState,
                     onMarkAttendance = {
-                        // --- SET THE LOCAL FLAG ---
                         val prefs = context.getSharedPreferences(DailyReminderWorker.PREFS_NAME, Context.MODE_PRIVATE)
                         prefs.edit().putLong(DailyReminderWorker.LAST_PRESS_KEY, System.currentTimeMillis()).apply()
-                        // --- END FLAG ---
-
+                        
                         if (locationPermissions.allPermissionsGranted) {
                             getCurrentLocation(context) { latitude, longitude ->
                                 attendanceViewModel.verifyAttendance(context, latitude, longitude)
@@ -182,22 +187,49 @@ private fun HomeScreenContent(
                         }
                     }
                 )
+                "CLOCKED_IN" -> ClockOutContent(
+                    uiState = uiState,
+                    onClockOut = {
+                        if (locationPermissions.allPermissionsGranted) {
+                            getCurrentLocation(context) { latitude, longitude ->
+                                attendanceViewModel.submitClockOut(employee.id, employee.deviceId, context, latitude, longitude)
+                            }
+                        } else {
+                            locationPermissions.launchMultiplePermissionRequest()
+                        }
+                    }
+                )
+                "COMPLETED" -> ClockedInContent()
             }
         }
 
         Spacer(modifier = Modifier.weight(1f))
 
-        AnimatedVisibility(
-            visible = isVisible,
-            enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(800, delayMillis = 200)) + fadeIn(animationSpec = tween(800, delayMillis = 200))
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .navigationBarsPadding()
+                .padding(bottom = 32.dp)
         ) {
-            TextButton(onClick = {
-                navController.currentBackStackEntry?.savedStateHandle?.set("employee", employee)
-                navController.navigate(Screen.AttendanceHistory.route)
-            }) {
-                Icon(Icons.Outlined.History, contentDescription = "History", modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("View My Attendance History")
+            Text(
+                text = "STATUS: ${employee.attendanceStatus ?: "NULL"}",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Red
+            )
+            
+            AnimatedVisibility(
+                visible = isVisible,
+                enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(800, delayMillis = 200)) + fadeIn(animationSpec = tween(800, delayMillis = 200))
+            ) {
+                TextButton(onClick = {
+                    navController.currentBackStackEntry?.savedStateHandle?.set("employee", employee)
+                    navController.navigate(Screen.AttendanceHistory.route)
+                }) {
+                    Icon(Icons.Outlined.History, contentDescription = "History", modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("View My Attendance History")
+                }
             }
         }
     }
@@ -206,13 +238,10 @@ private fun HomeScreenContent(
 @Composable
 private fun ClockedInContent() {
     var showEasterEgg by remember { mutableStateOf(false) }
-
     val easterEggImages = remember {
         listOf(
-            R.drawable.kibby1, R.drawable.kibby2, R.drawable.kibby3,
-            R.drawable.kibby4, R.drawable.kibby5, R.drawable.kibby6,
-            R.drawable.kibby7, R.drawable.kibby8, R.drawable.kibby9,
-            R.drawable.kibby10
+            R.drawable.kibby1, R.drawable.kibby2, R.drawable.kibby3, R.drawable.kibby4, R.drawable.kibby5,
+            R.drawable.kibby6, R.drawable.kibby7, R.drawable.kibby8, R.drawable.kibby9, R.drawable.kibby10
         )
     }
     var currentImage by remember { mutableStateOf(easterEggImages.first()) }
@@ -220,14 +249,12 @@ private fun ClockedInContent() {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                showEasterEgg = !showEasterEgg
-                if (showEasterEgg) {
-                    currentImage = easterEggImages.random()
-                }
+        modifier = Modifier.fillMaxWidth().clickable {
+            showEasterEgg = !showEasterEgg
+            if (showEasterEgg) {
+                currentImage = easterEggImages.random()
             }
+        }
     ) {
         if (showEasterEgg) {
             Image(
@@ -244,18 +271,15 @@ private fun ClockedInContent() {
                 modifier = Modifier.size(80.dp)
             )
         }
-
         Spacer(modifier = Modifier.height(16.dp))
-
         Text(
-            text = if (showEasterEgg) "Do it for her!" else "You have already clocked in for today.",
+            text = if (showEasterEgg) "Do it for her!" else "You have already worked today.",
             style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center
         )
-
         if (!showEasterEgg) {
             Text(
-                text = "See you tomorrow!",
+                text = "Enjoy the rest of ur day ig",
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
                 color = Color.Gray
@@ -265,8 +289,82 @@ private fun ClockedInContent() {
 }
 
 @Composable
+private fun ClockOutContent(
+    uiState: UiState,
+    onClockOut: () -> Unit
+) {
+    var showClockOutDialog by remember { mutableStateOf(false) }
+    var clockOutTime by remember { mutableStateOf("") }
+
+    if (showClockOutDialog) {
+        AlertDialog(
+            onDismissRequest = { showClockOutDialog = false },
+            title = { Text("Confirm Clock Out") },
+            text = {
+                Column {
+                    Text("Are you sure you want to clock out at this time?")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(clockOutTime, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClockOutDialog = false
+                        onClockOut()
+                    }
+                ) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClockOutDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = Modifier.fillMaxWidth().padding(16.dp)
+    ) {
+        when (uiState) {
+            is UiState.Idle -> {
+                Button(
+                    onClick = {
+                        val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                        clockOutTime = sdf.format(Date())
+                        showClockOutDialog = true
+                    },
+                    modifier = Modifier.fillMaxWidth().height(60.dp)
+                ) {
+                    Icon(Icons.Outlined.Logout, contentDescription = null, modifier = Modifier.size(28.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Clock Out", fontSize = 18.sp)
+                }
+            }
+            is UiState.Loading -> {
+                CircularProgressIndicator()
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Submitting...", style = MaterialTheme.typography.bodyLarge)
+            }
+            is UiState.Error -> {
+                Text(uiState.message, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = onClockOut) { Text("Retry") }
+            }
+            is UiState.Success -> {
+                 Text(uiState.message, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
+            }
+        }
+    }
+}
+
+@Composable
 private fun AttendanceActionContent(
-    state: VerificationState,
+    uiState: UiState,
     onMarkAttendance: () -> Unit
 ) {
     Column(
@@ -274,8 +372,8 @@ private fun AttendanceActionContent(
         verticalArrangement = Arrangement.Center,
         modifier = Modifier.fillMaxWidth().padding(16.dp)
     ) {
-        when (state) {
-            is VerificationState.Idle -> {
+        when (uiState) {
+            is UiState.Idle -> {
                 Button(
                     onClick = onMarkAttendance,
                     modifier = Modifier.fillMaxWidth().height(60.dp)
@@ -285,20 +383,20 @@ private fun AttendanceActionContent(
                     Text("Mark My Attendance", fontSize = 18.sp)
                 }
             }
-            is VerificationState.Verifying -> {
+            is UiState.Loading -> {
                 CircularProgressIndicator()
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("Verifying conditions...", style = MaterialTheme.typography.bodyLarge)
             }
-            is VerificationState.Error -> {
-                Text(state.message, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+            is UiState.Error -> {
+                Text(uiState.message, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(onClick = onMarkAttendance) {
                     Text("Retry")
                 }
             }
-            is VerificationState.Success -> {
-                Text("Verified!", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
+            is UiState.Success -> {
+                Text("Verified! Redirecting to camera...", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
             }
         }
     }

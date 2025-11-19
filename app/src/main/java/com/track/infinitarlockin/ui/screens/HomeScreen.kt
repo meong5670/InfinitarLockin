@@ -130,10 +130,10 @@ private fun HomeScreenContent(
             if (state.isVerification) {
                 delay(500)
                 navController.navigate(Screen.Camera.route)
-                attendanceViewModel.resetState() 
+                attendanceViewModel.resetState()
             } else {
-                delay(1500)
-                mainViewModel.checkDeviceRegistration(context)
+                // This logic is now handled by CameraScreen for clock-in
+                // and will be handled directly in the clock-out action.
                 attendanceViewModel.resetState()
             }
         }
@@ -192,12 +192,13 @@ private fun HomeScreenContent(
                     onClockOut = {
                         if (locationPermissions.allPermissionsGranted) {
                             getCurrentLocation(context) { latitude, longitude ->
-                                attendanceViewModel.submitClockOut(employee.id, employee.deviceId, context, latitude, longitude)
+                                 attendanceViewModel.submitClockOut(employee.id, employee.deviceId, context, latitude, longitude)
                             }
                         } else {
                             locationPermissions.launchMultiplePermissionRequest()
                         }
-                    }
+                    },
+                    mainViewModel = mainViewModel 
                 )
                 "COMPLETED" -> ClockedInContent()
             }
@@ -291,10 +292,18 @@ private fun ClockedInContent() {
 @Composable
 private fun ClockOutContent(
     uiState: UiState,
-    onClockOut: () -> Unit
+    onClockOut: () -> Unit,
+    mainViewModel: MainViewModel
 ) {
+    val context = LocalContext.current
     var showClockOutDialog by remember { mutableStateOf(false) }
     var clockOutTime by remember { mutableStateOf("") }
+    
+    LaunchedEffect(uiState) {
+        if (uiState is UiState.Success && !uiState.isVerification) {
+            mainViewModel.checkDeviceRegistration(context)
+        }
+    }
 
     if (showClockOutDialog) {
         AlertDialog(

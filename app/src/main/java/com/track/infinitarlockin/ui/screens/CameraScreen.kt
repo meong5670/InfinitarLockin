@@ -62,7 +62,8 @@ fun CameraScreen(
                 CameraScreenContent(
                     navController = navController,
                     employee = state.employee,
-                    attendanceViewModel = attendanceViewModel
+                    attendanceViewModel = attendanceViewModel,
+                    mainViewModel = mainViewModel
                 )
             }
             else -> {
@@ -77,7 +78,8 @@ fun CameraScreen(
 private fun CameraScreenContent(
     navController: NavController,
     employee: Employee,
-    attendanceViewModel: AttendanceViewModel
+    attendanceViewModel: AttendanceViewModel,
+    mainViewModel: MainViewModel
 ) {
     val context = LocalContext.current
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
@@ -106,7 +108,8 @@ private fun CameraScreenContent(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(state.message)
                 LaunchedEffect(Unit) {
-                    delay(1500)
+                    mainViewModel.checkDeviceRegistration(context)
+                    delay(500) // Keep a short delay for user to read the message
                     navController.popBackStack()
                 }
             }

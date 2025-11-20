@@ -101,6 +101,7 @@ private fun CameraScreenContent(
         is UiState.Loading -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
+                Spacer(modifier = Modifier.height(16.dp))
                 Text("Submitting attendance...")
             }
         }
@@ -131,6 +132,7 @@ private fun CameraPreview(
     val lifecycleOwner = LocalLifecycleOwner.current
     val imageCapture = remember { ImageCapture.Builder().build() }
     val executor = remember { ContextCompat.getMainExecutor(context) }
+    var isClicked by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
@@ -173,10 +175,14 @@ private fun CameraPreview(
 
         Button(
             onClick = {
-                takePicture(imageCapture, executor, context) { file ->
-                    attendanceViewModel.submitAttendance(employee.id, employee.deviceId, file)
+                if (!isClicked) {
+                    isClicked = true
+                    takePicture(imageCapture, executor, context) { file ->
+                        attendanceViewModel.submitAttendance(employee.id, employee.deviceId, file)
+                    }
                 }
             },
+            enabled = !isClicked, // Disable button after click
             shape = CircleShape,
             modifier = Modifier
                 .align(Alignment.BottomCenter)

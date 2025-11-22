@@ -1,8 +1,18 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("kotlin-parcelize")
+}
+
+// Read properties file
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
 }
 
 android {
@@ -20,7 +30,10 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-        buildConfigField("String", "BASE_URL", "\"https://infinitar-lockin-server.onrender.com\"")
+
+        // Read the API_BASE_URL from local.properties
+        val apiUrl = localProperties.getProperty("API_BASE_URL") ?: "\"https://your-default-url.com\""
+        buildConfigField("String", "API_BASE_URL", apiUrl)
     }
 
     buildTypes {
